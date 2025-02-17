@@ -11,8 +11,8 @@ class MapViewer(QWidget):
         super().__init__()
 
         self.latitude = 55
-        self.longitude = 37
-        self.scale = 10
+        self.longitude = 38
+        self.scale = 5
 
         self.initUI()
 
@@ -85,7 +85,7 @@ class MapViewer(QWidget):
         self.latitude += lat_delta
         self.longitude += lon_delta
 
-        # Ограничение координат
+        # Ограничение координат по максимуму и минимуму
         self.latitude = max(-90, min(self.latitude, 90))
         self.longitude = max(-180, min(self.longitude, 180))
 
