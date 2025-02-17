@@ -1,71 +1,100 @@
-import os
-import pygame
-import requests
 import sys
-import time
+from PyQt6.QtWidgets import (QApplication, QWidget, QLabel, QLineEdit,
+                             QPushButton, QVBoxLayout, QHBoxLayout)
+from PyQt6.QtGui import QPixmap, QImage, QKeyEvent
+from PyQt6.QtCore import Qt
+import requests
+from io import BytesIO
 
-class MapParams(object):
+class MapViewer(QWidget):
     def __init__(self):
-        self.lat = 61.665279  # Координаты центра карты на старте [1](https://www.CyberForum.ru/python-pygame/thread2783841.html)
-        self.lon = 50.813492
-        self.zoom = 16  # Масштаб карты на старте (изменяется от 1 до 19)
-        self.type = "map"  # Другие значения: "sat", "sat,skl" [1](https://www.CyberForum.ru/python-pygame/thread2783841.html)
+        super().__init__()
 
-    def ll(self):
-        return str(self.lon) + "," + str(self.lat)
+        self.latitude = 55.75
+        self.longitude = 37.61
+        self.scale = 15
 
-    def set_zoom(self, new_zoom):
-        self.zoom += new_zoom
+        self.initUI()
 
-def load_map(mp):
-    map_request = "http://static-maps.yandex.ru/1.x/?ll={ll}&z={z}&l={type}".format(ll=mp.ll(), z=mp.zoom, type=mp.type)
-    response = requests.get(map_request)
-    if not response:
-        print("Ошибка выполнения запроса:")
-        print(map_request)
-        print("Http статус:", response.status_code, "(", response.reason, ")")
-        sys.exit(1)
-    # Запись полученного изображения в файл
-    map_file = "map.png"
-    try:
-        with open(map_file, "wb") as file:
-            file.write(response.content)
-    except IOError as ex:
-        print("Ошибка записи временного файла:", ex)
-        sys.exit(2)
-    return map_file
+    def initUI(self):
+        self.setWindowTitle("Map Viewer")
 
-def main():
-    # Инициализируем pygame
-    pygame.init()
-    screen = pygame.display.set_mode((600, 450))
-    mp = MapParams()
-    map_file = load_map(mp)
-    pygame.display.set_caption('Задача 2')
-    run = 1
-    clock = pygame.time.Clock()
-    while run:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:  # Выход из программы
-                run = 0
-            if event.type == pygame.K_PAGEDOWN:
-                print(mp.zoom)
-                if mp.zoom != 1:
-                    mp.set_zoom(-1)
-            else:
-                print("Min zoom")
-            if event.type == pygame.K_PAGEUP:
-                print(mp.zoom)
-                if mp.zoom != 19:
-                    mp.set_zoom(1)
-    # Создаём файл
-        map_file = load_map(mp)
-        # Рисуем картинку, загружаемую из только что созданного файла
-        screen.blit(pygame.image.load(map_file), (0, 0))
-        clock.tick(50)
-        pygame.display.flip()
-    pygame.quit()
-    # Удаляем файл с изображением
-    os.remove(map_file)
-if __name__ == "__main__":
-    main()
+        latitude_label = QLabel("Широта:")
+        self.latitude_edit = QLineEdit(str(self.latitude))
+
+        longitude_label = QLabel("Долгота:")
+        self.longitude_edit = QLineEdit(str(self.longitude))
+
+        scale_label = QLabel("Масштаб:")
+        self.scale_edit = QLineEdit(str(self.scale))
+        self.scale_edit.setEnabled(False) # Запрещаем ввод масштаба вручную
+
+        update_button = QPushButton("Обновить карту")
+        update_button.clicked.connect(self.update_map)
+
+        self.map_label = QLabel()
+        self.map_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        hbox_latitude = QHBoxLayout()
+        hbox_latitude.addWidget(latitude_label)
+        hbox_latitude.addWidget(self.latitude_edit)
+
+        hbox_longitude = QHBoxLayout()
+        hbox_longitude.addWidget(longitude_label)
+        hbox_longitude.addWidget(self.longitude_edit)
+
+        hbox_scale = QHBoxLayout()
+        hbox_scale.addWidget(scale_label)
+        hbox_scale.addWidget(self.scale_edit)
+
+        vbox = QVBoxLayout()
+        vbox.addLayout(hbox_latitude)
+        vbox.addLayout(hbox_longitude)
+        vbox.addLayout(hbox_scale)
+        vbox.addWidget(update_button)
+        vbox.addWidget(self.map_label)
+
+        self.setLayout(vbox)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus) #  Нужно для обработки keyPressEvent
+        self.update_map()
+        self.show()
+
+    def keyPressEvent(self, event: QKeyEvent):
+        if event.key() == Qt.Key.Key_PageUp:
+            self.change_scale(1)
+        elif event.key() == Qt.Key.Key_PageDown:
+            self.change_scale(-1)
+
+    def change_scale(self, delta):
+        self.scale += delta
+        self.scale = max(0, min(self.scale, 19))  # Ограничение диапазона масштаба
+        self.scale_edit.setText(str(self.scale))
+        self.update_map()
+
+    def update_map(self):
+        try:
+            self.latitude = float(self.latitude_edit.text())
+            self.longitude = float(self.longitude_edit.text())
+            self.scale_edit.setText(str(self.scale)) # Отображаем масштаб
+
+            # Запрос к API Яндекс.Карт
+            map_url = f"https://static-maps.yandex.ru/1.x/?ll={self.longitude},{self.latitude}&z={self.scale}&l=map"
+            response = requests.get(map_url)
+            response.raise_for_status()
+
+            image = QImage.fromData(response.content)
+            pixmap = QPixmap.fromImage(image)
+            self.map_label.setPixmap(pixmap)
+
+
+        except ValueError as e:
+            self.map_label.setText(f"Ошибка: {e}")
+        except requests.exceptions.RequestException as e:
+            self.map_label.setText(f"Ошибка сети: {e}")
+        except Exception as e:
+            self.map_label.setText(f"Неизвестная ошибка: {e}")
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    ex = MapViewer()
+    sys.exit(app.exec())
