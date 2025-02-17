@@ -10,9 +10,9 @@ class MapViewer(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.latitude = 55.75
-        self.longitude = 37.61
-        self.scale = 15
+        self.latitude = 55
+        self.longitude = 37
+        self.scale = 10
 
         self.initUI()
 
