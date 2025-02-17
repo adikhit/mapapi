@@ -17,7 +17,7 @@ class MapViewer(QWidget):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle("Map Viewer")
+        self.setWindowTitle("mapapi")
 
         latitude_label = QLabel("Широта:")
         self.latitude_edit = QLineEdit(str(self.latitude))
@@ -27,7 +27,7 @@ class MapViewer(QWidget):
 
         scale_label = QLabel("Масштаб:")
         self.scale_edit = QLineEdit(str(self.scale))
-        self.scale_edit.setEnabled(False) # Запрещаем ввод масштаба вручную
+        self.scale_edit.setEnabled(False)
 
         update_button = QPushButton("Обновить карту")
         update_button.clicked.connect(self.update_map)
@@ -55,29 +55,57 @@ class MapViewer(QWidget):
         vbox.addWidget(self.map_label)
 
         self.setLayout(vbox)
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus) #  Нужно для обработки keyPressEvent
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
         self.update_map()
         self.show()
 
     def keyPressEvent(self, event: QKeyEvent):
+        # сдвиги
         if event.key() == Qt.Key.Key_PageUp:
             self.change_scale(1)
         elif event.key() == Qt.Key.Key_PageDown:
             self.change_scale(-1)
+        elif event.key() == Qt.Key.Key_Up:
+            self.move_map(1, 0)  # Сдвиг вверх
+        elif event.key() == Qt.Key.Key_Down:
+            self.move_map(-1, 0)  # Сдвиг вниз
+        elif event.key() == Qt.Key.Key_Left:
+            self.move_map(0, -1)  # Сдвиг влево
+        elif event.key() == Qt.Key.Key_Right:
+            self.move_map(0, 1)  # Сдвиг вправо
 
     def change_scale(self, delta):
         self.scale += delta
-        self.scale = max(0, min(self.scale, 19))  # Ограничение диапазона масштаба
+        self.scale = max(0, min(self.scale, 19))
         self.scale_edit.setText(str(self.scale))
         self.update_map()
 
-    def update_map(self):
-        try:
-            self.latitude = float(self.latitude_edit.text())
-            self.longitude = float(self.longitude_edit.text())
-            self.scale_edit.setText(str(self.scale)) # Отображаем масштаб
+    def move_map(self, lat_delta, lon_delta):
+        self.latitude += lat_delta
+        self.longitude += lon_delta
 
-            # Запрос к API Яндекс.Карт
+        # Ограничение координат
+        self.latitude = max(-90, min(self.latitude, 90))
+        self.longitude = max(-180, min(self.longitude, 180))
+
+
+        self.latitude_edit.setText(str(self.latitude))
+        self.longitude_edit.setText(str(self.longitude))
+        self.update_map()
+
+    def update_map(self):
+        # обновление карты
+        try:
+            # Получаем значения из полей ввода, если они есть
+            try:
+                self.latitude = float(self.latitude_edit.text())
+                self.longitude = float(self.longitude_edit.text())
+            except ValueError:
+                pass
+
+            self.scale_edit.setText(str(self.scale))
+
             map_url = f"https://static-maps.yandex.ru/1.x/?ll={self.longitude},{self.latitude}&z={self.scale}&l=map"
             response = requests.get(map_url)
             response.raise_for_status()
