@@ -1,128 +1,126 @@
-import sys
-from PyQt6.QtWidgets import (QApplication, QWidget, QLabel, QLineEdit,
-                             QPushButton, QVBoxLayout, QHBoxLayout)
-from PyQt6.QtGui import QPixmap, QImage, QKeyEvent
-from PyQt6.QtCore import Qt
-import requests
-from io import BytesIO
+# импортируем библиотеки
+from flask import Flask, request
+import logging
 
-class MapViewer(QWidget):
-    def __init__(self):
-        super().__init__()
+# библиотека, которая нам понадобится для работы с JSON
+import json
 
-        self.latitude = 55
-        self.longitude = 38
-        self.scale = 5
+# создаем приложение
+# мы передаем __name__, в нем содержится информация, в каком модуле мы находимся.
+# В данном случае там содержится '__main__', так как мы обращаемся к переменной из запущенного модуля.
+# если бы такое обращение, например, произошло внутри модуля logging, то мы бы получили 'logging'
+app = Flask(__name__)
 
-        self.initUI()
+# Устанавливаем уровень логирования
+logging.basicConfig(level=logging.INFO)
 
-    def initUI(self):
-        self.setWindowTitle("mapapi")
-
-        latitude_label = QLabel("Широта:")
-        self.latitude_edit = QLineEdit(str(self.latitude))
-
-        longitude_label = QLabel("Долгота:")
-        self.longitude_edit = QLineEdit(str(self.longitude))
-
-        scale_label = QLabel("Масштаб:")
-        self.scale_edit = QLineEdit(str(self.scale))
-        self.scale_edit.setEnabled(False)
-
-        update_button = QPushButton("Обновить карту")
-        update_button.clicked.connect(self.update_map)
-
-        self.map_label = QLabel()
-        self.map_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        hbox_latitude = QHBoxLayout()
-        hbox_latitude.addWidget(latitude_label)
-        hbox_latitude.addWidget(self.latitude_edit)
-
-        hbox_longitude = QHBoxLayout()
-        hbox_longitude.addWidget(longitude_label)
-        hbox_longitude.addWidget(self.longitude_edit)
-
-        hbox_scale = QHBoxLayout()
-        hbox_scale.addWidget(scale_label)
-        hbox_scale.addWidget(self.scale_edit)
-
-        vbox = QVBoxLayout()
-        vbox.addLayout(hbox_latitude)
-        vbox.addLayout(hbox_longitude)
-        vbox.addLayout(hbox_scale)
-        vbox.addWidget(update_button)
-        vbox.addWidget(self.map_label)
-
-        self.setLayout(vbox)
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-
-        self.update_map()
-        self.show()
-
-    def keyPressEvent(self, event: QKeyEvent):
-        # сдвиги
-        if event.key() == Qt.Key.Key_PageUp:
-            self.change_scale(1)
-        elif event.key() == Qt.Key.Key_PageDown:
-            self.change_scale(-1)
-        elif event.key() == Qt.Key.Key_Up:
-            self.move_map(1, 0)  # Сдвиг вверх
-        elif event.key() == Qt.Key.Key_Down:
-            self.move_map(-1, 0)  # Сдвиг вниз
-        elif event.key() == Qt.Key.Key_Left:
-            self.move_map(0, -1)  # Сдвиг влево
-        elif event.key() == Qt.Key.Key_Right:
-            self.move_map(0, 1)  # Сдвиг вправо
-
-    def change_scale(self, delta):
-        self.scale += delta
-        self.scale = max(0, min(self.scale, 19))
-        self.scale_edit.setText(str(self.scale))
-        self.update_map()
-
-    def move_map(self, lat_delta, lon_delta):
-        self.latitude += lat_delta
-        self.longitude += lon_delta
-
-        # Ограничение координат по максимуму и минимуму
-        self.latitude = max(-90, min(self.latitude, 90))
-        self.longitude = max(-180, min(self.longitude, 180))
+# Создадим словарь, чтобы для каждой сессии общения с навыком хранились подсказки, которые видел пользователь.
+# Это поможет нам немного разнообразить подсказки ответов (buttons в JSON ответа).
+# Когда новый пользователь напишет нашему навыку, то мы сохраним в этот словарь запись формата
+# sessionStorage[user_id] = { 'suggests': ["Не хочу.", "Не буду.", "Отстань!" ] }
+# Такая запись говорит, что мы показали пользователю эти три подсказки. Когда он откажется купить слона,
+# то мы уберем одну подсказку. Как будто что-то меняется :)
+sessionStorage = {}
 
 
-        self.latitude_edit.setText(str(self.latitude))
-        self.longitude_edit.setText(str(self.longitude))
-        self.update_map()
+@app.route('/post', methods=['POST'])
+# Функция получает тело запроса и возвращает ответ.
+# Внутри функции доступен request.json - это JSON, который отправила нам Алиса в запросе POST
+def main():
+    logging.info('Request: %r', request.json)
 
-    def update_map(self):
-        # обновление карты
-        try:
-            # Получаем значения из полей ввода, если они есть
-            try:
-                self.latitude = float(self.latitude_edit.text())
-                self.longitude = float(self.longitude_edit.text())
-            except ValueError:
-                pass
+    # Начинаем формировать ответ, согласно документации
+    # мы собираем словарь, который потом при помощи библиотеки json преобразуем в JSON и отдадим Алисе
+    response = {
+        'session': request.json['session'],
+        'version': request.json['version'],
+        'response': {
+            'end_session': False
+        }
+    }
 
-            self.scale_edit.setText(str(self.scale))
+    # Отправляем request.json и response в функцию handle_dialog. Она сформирует оставшиеся поля JSON, которые отвечают
+    # непосредственно за ведение диалога
+    handle_dialog(request.json, response)
 
-            map_url = f"https://static-maps.yandex.ru/1.x/?ll={self.longitude},{self.latitude}&z={self.scale}&l=map"
-            response = requests.get(map_url)
-            response.raise_for_status()
+    logging.info('Response: %r', request.json)
 
-            image = QImage.fromData(response.content)
-            pixmap = QPixmap.fromImage(image)
-            self.map_label.setPixmap(pixmap)
+    # Преобразовываем в JSON и возвращаем
+    return json.dumps(response)
 
 
-        except ValueError as e:
-            self.map_label.setText(f"Ошибка: {e}")
-        except requests.exceptions.RequestException as e:
-            self.map_label.setText(f"Ошибка сети: {e}")
-        except Exception as e:
-            self.map_label.setText(f"Неизвестная ошибка: {e}")
+def handle_dialog(req, res):
+    user_id = req['session']['user_id']
+
+    if req['session']['new']:
+        # Это новый пользователь.
+        # Инициализируем сессию и поприветствуем его.
+        # Запишем подсказки, которые мы ему покажем в первый раз
+
+        sessionStorage[user_id] = {
+            'suggests': [
+                "Не хочу.",
+                "Не буду.",
+                "Отстань!",
+            ]
+        }
+        # Заполняем текст ответа
+        res['response']['text'] = 'Привет! Купи слона!'
+        # Получим подсказки
+        res['response']['buttons'] = get_suggests(user_id)
+        return
+
+    # Сюда дойдем только, если пользователь не новый, и разговор с Алисой уже был начат
+    # Обрабатываем ответ пользователя.
+    # В req['request']['original_utterance'] лежит весь текст, что нам прислал пользователь
+    # Если он написал 'ладно', 'куплю', 'покупаю', 'хорошо', то мы считаем, что пользователь не согласился.
+    # Подумайте, все ли в этом фрагменте написано "красиво"?
+    if req['request']['original_utterance'].lower() in [
+        'ладно',
+        'куплю',
+        'покупаю',
+        'хорошо'
+    ]:
+        # Пользователь согласился, прощаемся.
+        res['response']['text'] = 'Слона можно найти на Яндекс.Маркете!'
+        res['response']['end_session'] = True
+        return
+
+    # Если нет, то убеждаем его купить слона!
+    res['response']['text'] = 'Все говорят "%s", а ты купи слона!' % (
+        req['request']['original_utterance']
+    )
+    res['response']['buttons'] = get_suggests(user_id)
+
+
+# Функция возвращает две подсказки для ответа.
+def get_suggests(user_id):
+    session = sessionStorage[user_id]
+
+    # Выбираем две первые подсказки из массива.
+    suggests = [
+        {'title': suggest, 'hide': True}
+        for suggest in session['suggests'][:2]
+    ]
+
+    # Убираем первую подсказку, чтобы подсказки менялись каждый раз.
+    session['suggests'] = session['suggests'][1:]
+    sessionStorage[user_id] = session
+
+    # Если осталась только одна подсказка, предлагаем подсказку
+    # со ссылкой на Яндекс.Маркет.
+    if len(suggests) < 2:
+        suggests.append({
+            "title": "Ладно",
+            "url": "https://market.yandex.ru/search?text=слон",
+            "hide": True
+        })
+
+    return suggests
+
+
+def main():
+    app.run(port=8080, host='127.0.0.1')
 
 if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    ex = MapViewer()
-    sys.exit(app.exec())
+    main()
